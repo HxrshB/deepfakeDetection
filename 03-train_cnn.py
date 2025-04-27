@@ -1,153 +1,95 @@
-import json
 import os
-from distutils.dir_util import copy_tree
-import shutil
 import pandas as pd
-
-# TensorFlow and tf.keras
-import tensorflow as tf
-from tensorflow.keras import backend as K
-print('TensorFlow version: ', tf.__version__)
-
-# Set to force CPU
-#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-#if tf.test.gpu_device_name():
-#    print('GPU found')
-#else:
-#    print("No GPU found")
-
-dataset_path = '.\\split_dataset\\'
-
-tmp_debug_path = '.\\tmp_debug'
-print('Creating Directory: ' + tmp_debug_path)
-os.makedirs(tmp_debug_path, exist_ok=True)
-
-def get_filename_only(file_path):
-    file_basename = os.path.basename(file_path)
-    filename_only = file_basename.split('.')[0]
-    return filename_only
-
+import numpy as np
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras import applications
-from efficientnet.tfkeras import EfficientNetB0 #EfficientNetB1, EfficientNetB2, EfficientNetB3, EfficientNetB4, EfficientNetB5, EfficientNetB6, EfficientNetB7
-from tensorflow.keras.models import Sequential
+from efficientnet.tfkeras import EfficientNetB0
+from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from tensorflow.keras.models import load_model
+import openpyxl
+from openpyxl.drawing.image import Image as OpenpyxlImage
+from PIL import Image
 
-input_size = 128
-batch_size_num = 32
+# Paths for training, validation, and testing
+dataset_path = './split_dataset/'
 train_path = os.path.join(dataset_path, 'train')
 val_path = os.path.join(dataset_path, 'val')
 test_path = os.path.join(dataset_path, 'test')
 
+# Input configurations
+input_size = 128
+batch_size = 32
+epochs = 20
+
+# Create data generators
 train_datagen = ImageDataGenerator(
-    rescale = 1/255,    #rescale the tensor values to [0,1]
-    rotation_range = 10,
-    width_shift_range = 0.1,
-    height_shift_range = 0.1,
-    shear_range = 0.2,
-    zoom_range = 0.1,
-    horizontal_flip = True,
-    fill_mode = 'nearest'
+    rescale=1/255,
+    rotation_range=10,
+    width_shift_range=0.1,
+    height_shift_range=0.1,
+    shear_range=0.2,
+    zoom_range=0.1,
+    horizontal_flip=True,
+    fill_mode='nearest'
 )
+val_datagen = ImageDataGenerator(rescale=1/255)
+test_datagen = ImageDataGenerator(rescale=1/255)
 
+# Data generators for each dataset
 train_generator = train_datagen.flow_from_directory(
-    directory = train_path,
-    target_size = (input_size, input_size),
-    color_mode = "rgb",
-    class_mode = "binary",  #"categorical", "binary", "sparse", "input"
-    batch_size = batch_size_num,
-    shuffle = True
-    #save_to_dir = tmp_debug_path
+    train_path, target_size=(input_size, input_size), batch_size=batch_size, class_mode='binary'
 )
-
-val_datagen = ImageDataGenerator(
-    rescale = 1/255    #rescale the tensor values to [0,1]
-)
-
 val_generator = val_datagen.flow_from_directory(
-    directory = val_path,
-    target_size = (input_size, input_size),
-    color_mode = "rgb",
-    class_mode = "binary",  #"categorical", "binary", "sparse", "input"
-    batch_size = batch_size_num,
-    shuffle = True
-    #save_to_dir = tmp_debug_path
+    val_path, target_size=(input_size, input_size), batch_size=batch_size, class_mode='binary'
 )
-
-test_datagen = ImageDataGenerator(
-    rescale = 1/255    #rescale the tensor values to [0,1]
-)
-
 test_generator = test_datagen.flow_from_directory(
-    directory = test_path,
-    classes=['real', 'fake'],
-    target_size = (input_size, input_size),
-    color_mode = "rgb",
-    class_mode = None,
-    batch_size = 1,
-    shuffle = False
+    test_path, target_size=(input_size, input_size), batch_size=1, class_mode=None, shuffle=False
 )
 
-# Train a CNN classifier
-efficient_net = EfficientNetB0(
-    weights = 'imagenet',
-    input_shape = (input_size, input_size, 3),
-    include_top = False,
-    pooling = 'max'
-)
-
-model = Sequential()
-model.add(efficient_net)
-model.add(Dense(units = 512, activation = 'relu'))
-model.add(Dropout(0.5))
-model.add(Dense(units = 128, activation = 'relu'))
-model.add(Dense(units = 1, activation = 'sigmoid'))
+# Define model
+efficient_net = EfficientNetB0(weights='imagenet', input_shape=(input_size, input_size, 3), include_top=False, pooling='max')
+model = Sequential([
+    efficient_net,
+    Dense(512, activation='relu'),
+    Dropout(0.5),
+    Dense(128, activation='relu'),
+    Dense(1, activation='sigmoid')
+])
 model.summary()
 
 # Compile model
-model.compile(optimizer = Adam(lr=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
+model.compile(optimizer=Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
 
-checkpoint_filepath = '.\\tmp_checkpoint'
-print('Creating Directory: ' + checkpoint_filepath)
-os.makedirs(checkpoint_filepath, exist_ok=True)
+# Callbacks
+checkpoint_path = './model_checkpoint'
+os.makedirs(checkpoint_path, exist_ok=True)
 
-custom_callbacks = [
-    EarlyStopping(
-        monitor = 'val_loss',
-        mode = 'min',
-        patience = 5,
-        verbose = 1
-    ),
-    ModelCheckpoint(
-        filepath = os.path.join(checkpoint_filepath, 'best_model.h5'),
-        monitor = 'val_loss',
-        mode = 'min',
-        verbose = 1,
-        save_best_only = True
-    )
+callbacks = [
+    EarlyStopping(monitor='val_loss', patience=5, verbose=1, mode='min'),
+    ModelCheckpoint(filepath=os.path.join(checkpoint_path, 'best_model.keras'), monitor='val_loss', verbose=1, save_best_only=True, mode='min')
 ]
 
-# Train network
-num_epochs = 20
-history = model.fit_generator(
+# Train the model
+history = model.fit(
     train_generator,
-    epochs = num_epochs,
-    steps_per_epoch = len(train_generator),
-    validation_data = val_generator,
-    validation_steps = len(val_generator),
-    callbacks = custom_callbacks
+    epochs=epochs,
+    validation_data=val_generator,
+    steps_per_epoch=len(train_generator),
+    validation_steps=len(val_generator),
+    callbacks=callbacks
 )
+
+# Save training results
 print(history.history)
 
-'''
-# Plot results
+# Load the best model
+best_model = load_model(os.path.join(checkpoint_path, 'best_model.keras'))
+
 import matplotlib.pyplot as plt
 
-acc = history.history['acc']
-val_acc = history.history['val_acc']
+acc = history.history['accuracy']
+val_acc = history.history['val_accuracy']
 loss = history.history['loss']
 val_loss = history.history['val_loss']
 
@@ -165,21 +107,80 @@ plt.title('Training and Validation Loss')
 plt.legend()
 
 plt.show()
-'''
 
-# load the saved model that is considered the best
-best_model = load_model(os.path.join(checkpoint_filepath, 'best_model.h5'))
-
-# Generate predictions
+# Predict on test set
 test_generator.reset()
+predictions = best_model.predict(test_generator, verbose=1)
 
-preds = best_model.predict(
-    test_generator,
-    verbose = 1
-)
+# Define paths
+deepfake_folder = "./tmp_fake_faces/"
+xls_path = './predictions.xlsx'
 
-test_results = pd.DataFrame({
-    "Filename": test_generator.filenames,
-    "Prediction": preds.flatten()
+# Ensure deepfake image folder exists
+if not os.path.exists(deepfake_folder):
+    print(f"Deepfake image folder '{deepfake_folder}' does not exist!")
+    exit()
+
+# Assuming predictions are already generated
+filenames = test_generator.filenames  # Get filenames from test_generator
+predictions = best_model.predict(test_generator, verbose=1).flatten()  # Get predictions
+
+# Construct deepfake image paths
+deepfake_paths = [os.path.join(deepfake_folder, os.path.basename(f)) for f in filenames]
+
+# Create DataFrame
+results = pd.DataFrame({
+    "Filename": filenames,
+    "Prediction": predictions,
+    "Deepfaked_Image_Path": deepfake_paths  # Adding path for verification
 })
-print(test_results)
+
+# Save DataFrame as Excel
+results.to_excel(xls_path, index=False, engine='openpyxl')
+
+# Load workbook and sheet
+wb = openpyxl.load_workbook(xls_path)
+ws = wb.active
+
+# Insert images into the Excel file (column C)
+for i, deepfake_path in enumerate(results["Deepfaked_Image_Path"], start=2):  # Start from row 2
+    if os.path.exists(deepfake_path):  # Ensure the image exists
+        # Load and resize image
+        img = Image.open(deepfake_path)
+        img = img.resize((100, 100))  # Resize to fit in Excel
+        
+        # Save with a unique filename for each row
+        temp_image_path = f"/fake/temp_image_{i}.png"
+        img.save(temp_image_path)  
+
+        # Insert into Excel
+        img_excel = OpenpyxlImage(temp_image_path)
+        ws.add_image(img_excel, f"C{i}")  # Column C for images
+
+# Save the modified Excel file
+wb.save(xls_path)
+
+print(f"Predictions with embedded images saved to '{xls_path}'")
+
+from sklearn.metrics import confusion_matrix, classification_report
+import seaborn as sns
+
+# Get true labels
+true_labels = test_generator.classes  
+
+# Get predicted labels (threshold = 0.5 for binary classification)
+predicted_labels = (predictions.flatten() > 0.5).astype(int)
+
+# Compute confusion matrix
+cm = confusion_matrix(true_labels, predicted_labels)
+
+# Display confusion matrix using seaborn heatmap
+plt.figure(figsize=(6, 5))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Fake', 'Real'], yticklabels=['Fake', 'Real'])
+plt.xlabel('Predicted Labels')
+plt.ylabel('True Labels')
+plt.title('Confusion Matrix')
+plt.show()
+
+# Print classification report
+print("Classification Report:\n", classification_report(true_labels, predicted_labels))

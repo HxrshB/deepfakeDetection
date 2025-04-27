@@ -109,6 +109,19 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+output/
+fake_videos/
+real_videos/
+test_video
+tempCodeRunnerFile.py/
+train_sample_videos/
+img/
+prepared_dataset/fake/
+prepared_dataset/real/
+split_dataset/
+model_checkpoint
+predictions.xlsx
+
 
 # Spyder project settings
 .spyderproject
