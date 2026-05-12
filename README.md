@@ -6,7 +6,6 @@ A deepfake detection project that prepares video data, detects faces, trains a C
 
 - `00-convert_video_to_image.py` — convert video frames to images.
 - `01-crop_faces_with_mtcnn.py` — detect and crop faces from images using MTCNN.
-- `01b-crop_faces_with_azure-vision-api.py` — legacy script for Azure Computer Vision face detection (removed from history/remote).
 - `02-prepare_fake_real_dataset.py` — prepare datasets for fake vs real classification.
 - `03-train_cnn.py` — train the CNN model on prepared face datasets.
 - `predict_video.py` — run predictions on a video using the trained model.
@@ -65,5 +64,4 @@ python predict_video.py
 ## Notes
 
 - Do not commit secrets or API keys to this repository.
-- The `01b-crop_faces_with_azure-vision-api.py` file was removed from the repository history due to secret scanning.
 - Keep your `env/` local and avoid pushing it to GitHub.
